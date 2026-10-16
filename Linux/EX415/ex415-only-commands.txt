@@ -1,0 +1,338 @@
+EX415 Command Cheatsheet:
+
+selinux:
+
+# Get the current mode only (Enforcing, Permissive, or Disabled)
+getenforce
+
+# Display detailed status information
+sestatus 
+
+# Set SELinux Mode temporary (0=permissive, 1=enforcing)
+sudo setenforce 0
+
+# Create a file in the home directory
+sudo touch example.txt
+
+# Display the SELinux Context
+ls -Z example.txt
+
+# Change type temporary
+chcon -t httpd_sys_content_t example.txt
+
+# Display the SELinux Context
+ls -Z example.txt
+
+# Restore Type
+restorecon -v example.txt
+
+# Move the file to the /tmp directory
+mv example.txt /tmp/example.txt
+
+# Change type temporary
+chcon -t httpd_sys_content_t example.txt
+
+# Display the SELinux Context
+ls -Z /tmp/example.txt
+
+# Restore Type
+restorecon -v /tmp/example.txt
+
+# Install httpd
+sudo dnf install httpd -y
+
+# Enabling and starting the httpd deamon
+sudo systemctl enable –-now httpd
+
+# Checking httpd status
+sudo systemctl status httpd
+
+# Create File in the html directory
+sudo touch /var/www/html/test.html
+echo "Hello" | sudo tee /var/www/html/test.html
+
+# Display the SELinux Context
+ls -Z /var/www/html/test.html
+
+# Change the SELinux type context
+sudo chcon -t user_home_t /var/www/html/test.html
+
+# Restore the SELinux type context
+sudo restorecon -v /var/www/html/test.html
+
+# Test the Page access
+curl http://localhost/test.html
+
+# Search in audit.log for httpd avc logs
+sudo grep -i avc /var/log/audit/audit.log | grep -i httpd
+
+#Show SELinux Logs with ausearch
+sudo ausearch -m AVC -ts today -i
+
+# Pipe Ausearch Message into audit2why
+sudo ausearch -m avc -ts today -i | audit2why
+
+# Create a full report with sealert
+sudo sealert -a /var/log/audit/audit.log
+
+# Show SELinux Booleans in the current runtime
+getsebool -a
+
+# Show more Info for Booleans, description, current runtime and persistent setting
+sudo semanage boolean -l
+
+# Set Boolean temporary to on with keyword on or 1
+sudo setsebool httpd_enable_homedirs on
+sudo setsebool httpd_enable_homedirs 1
+
+# Set Boolean temporary to off with keyword off or 0
+sudo setsebool httpd_enable_homedirs off
+sudo setsebool httpd_enable_homedirs 0
+
+# Set Boolean to off or on persistent
+sudo setsebool -P httpd_enable_homedirs off
+sudo semanage boolean --modify --on httpd_enable_homedirs
+
+# Set LISTEN port to 82 in httpd.conf
+sudo vim /etc/httpd/conf/httpd.conf
+
+# Check which Ports are allowed for httpd SELinux and firewall-cmd
+sudo semanage port -l | grep http
+sudo firewall-cmd --list-ports
+
+# Add Ports in SELinux and firewall-cmd
+sudo semanage port -a -t http_port_t -p tcp 82
+sudo firewall-cmd --permanent --add-port=82/tcp
+
+# Restart the httpd deamon
+sudo systemctl restart httpd
+
+# change type permanent
+semanage fcontext -a -t <type>
+
+
+
+USBGuard:
+
+# Check if Ansible connections to the control nodes work
+ansible all -m ping
+
+# Install USBGuard
+sudo dnf install usbguard -y
+
+# Create initial policy with already connected usb devices
+sudo usbguard generate-policy | sudo tee /etc/usbguard/rules.conf
+
+# Start USBGuard daemon
+sudo systemctl enable --now usbguard
+
+# Verify added devices
+sudo usbguard list-devices	
+
+# Verify blocked usb stick after plugin
+sudo usbguard list-devices
+
+# Allow plugged in usb stick temporary
+sudo usbguard allow-device 11
+
+# Allow plugged in usb stick permanent
+sudo usbguard allow-device -p 11
+
+# Deploy usbguard 
+ansible-playbook -i inventory usbguard_deploy.yml --limit 192.168.159.128
+
+# Deployment yml file 
+---
+- name: Deploy USBGuard from Control Node Policy to Target
+  hosts: 192.168.159.128
+  become: true
+
+  tasks:
+    - name: 1. Ensure USBGuard package is installed
+      ansible.builtin.dnf:
+        name: usbguard
+        state: present
+
+    - name: 2. Copy rules.conf from project directory to managed node
+      ansible.builtin.copy:
+        src: rules.conf
+        dest: /etc/usbguard/rules.conf
+        owner: root
+        group: root
+        mode: '0600'
+
+    - name: 3. Ensure usbguard daemon is enabled and started
+      ansible.builtin.service:
+        name: usbguard
+        state: started
+        enabled: true
+
+
+
+
+PAM:
+
+# Show current 
+authselect current
+
+# Show current 
+authselect list
+
+# Show current 
+sudo vim /etc/security/pwquality.conf
+
+# Change faillock configuration 
+sudo vim /etc/security/faillock.conf
+
+# Reset faillock for a specific user
+sudo faillock --user <username> --reset
+
+
+
+Auditd:
+
+# Create a audit .rules files 
+sudo vim /etc/audit/rules.d/passwd.rules
+
+# Check all implemented Audit Rules
+sudo auditctl -l
+
+# Reload auditd rules
+sudo auditctl -R /etc/audit/rules.d/passwd.rules
+sudo augenrules --load
+
+# Add Rules to monitor changes in passwd and shadow file
+-w /etc/passwd -p wa -k identity
+-w /etc/shadow -p wa -k identity
+
+# create rule for a specific binary or program
+-a always,exit -F arch=b64 -S execve -F exe=/usr/bin/passwd -k passwd_execution
+
+# search /var/log/audit/audit.log for identity logs
+sudo ausearch -k identity
+
+
+
+AIDE:
+
+# Install and verify installation of aide 
+sudo dnf install aide -y
+aide -v
+
+# Create a file in the root Directory
+sudo touch /root/secret.txt
+echo "important secret" | sudo tee /root/secret.txt
+
+# Add a path to monitor
+sudo vim /etc/aide.conf
+/root/secret.txt R
+
+# Create a initial Aide Database with file hashes etc. and rename it
+sudo aide –init
+sudo mv /var/lib/aide/aide.db.new.gz /var/lib/aide/aide.db.gz
+
+# Change the file content and make a aide integrity check
+aide –check
+echo "added to file!" | sudo tee -a /root/secret.txt
+
+# Update aide database after changes
+sudo aide --update
+
+
+
+Data and File Encryption:
+
+# Show inode number
+ls -i filename
+
+# Create a Hardlink
+ln original_file.txt hard_link.txt
+
+# Create a Softlink
+ln -s original_file.txt soft_link.txt
+
+# Find all files associated with a specific inode number
+find /path/to/search -inum 12345678
+
+# More informations about disk, partitions and filesystems
+sudo blkid
+lsblk
+sudo fdisk -l
+sudo dumpe2fs
+df -h
+
+# Initialize Luks Container 
+sudo cryptsetup luksFormat /dev/nvme0n2
+
+# Decrypt Luks Container
+sudo cryptsetup luksOpen /dev/nvme0n2 secure_vol
+
+# Install tang server 
+sudo dnf install tang -y
+
+# Enable and start and verify the tang deamon
+sudo systemctl enable --now tangd.socket
+sudo systemctl status tangd.socket
+
+# Open Firewall Port
+sudo firewall-cmd --add-service=http --permanent
+sudo firewall-cmd --reload
+
+# Install clevis packets
+sudo dnf install -y clevis clevis-luks clevis-Dracut
+
+# Bind Container with the tang server
+sudo clevis luks bind -d /dev/nvme0n2 tang '{"url":"http://almaserver01"}'
+
+# update initramfs
+sudo dracut -f
+
+# update initramfs
+sudo clevis luks bind -d /dev/nvme0n2 tang '{"t":1,"pins":{"tang":[{"url":"http://almaserver01"},{"url":"http://almaserver02"}]}}' 
+
+
+OpenScap:
+
+# Install the scanning engine and the rule book database 
+sudo dnf install -y openscap-scanner scap-security-guide
+
+# Check for the rules xml database get informations about scanning profiles and rules
+ls -l /usr/share/xml/scap/ssg/content/
+oscap info /usr/share/xml/scap/ssg/content/ssg-almalinux10-ds.xml
+
+# Scan with the cis ruleset and create reports
+sudo oscap xccdf eval \
+  --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
+  --results results.xml \
+  --report report.html \
+  /usr/share/xml/scap/ssg/content/ssg-almalinux10-ds.xml
+
+# Subsequent report generation
+oscap xccdf generate report results.xml > report-new.html
+
+# Show results in the terminal
+oscap xccdf info results.xml
+
+# Subsequent remediation
+oscap xccdf remediate results.xml
+
+# Perform a CVE scan
+sudo oscap oval eval \
+ --results cve-results.xml \
+ --report cve-report.html \
+ /path/to/oval-definition-file.xml
+
+# Create automaticly ansible remediation playbook
+oscap xccdf generate fix \
+  --fix-type ansible \
+  --profile xccdf_org.ssgproject.content_profile_cis_server_l1 \
+  --output remediation-playbook.yml \
+  results.xml
+
+
+
+
+
+
+
+
